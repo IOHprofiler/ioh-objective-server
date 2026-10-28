@@ -1,7 +1,4 @@
 #!/bin/sh
-
-mkfifo ../debug/query
-mkfifo ../debug/reply
-
-../debug/service/ioh-service --dbg-level XDebug --dimension 10 ../debug/query ../debug/reply
-
+# Serves OneMax in dimension 10 on the named pipes query and reply; then run: python3 example_client.py query reply
+mkfifo query reply
+./build/ioh-server --type integer --problem OneMax --instance 1 --dimension 10 query reply

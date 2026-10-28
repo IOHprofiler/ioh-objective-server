@@ -5,17 +5,20 @@ analyzed in IOHanalyzer later on.
 It use a simple protocol where messages between the client and the server are
 encoded in JSON.
 
+This server was part of [IOHexperimenter](https://github.com/IOHprofiler/IOHexperimenter) (its `server/`
+directory, written by Johann Dreo) until version 0.4.0, and moved here with its history. It is built against
+IOHexperimenter, at the version pinned in `CMakeLists.txt`.
+
 ## Build and run
 
 ### Build
 
-The `ioh-server` is build along with IOHexperimenter if you enabled
-the `BUILD_SERVER` option.
-
-For example with:
+A C++17 compiler, CMake 3.16 or later and git are needed. CMake downloads IOHexperimenter, nlohmann/json and
+cxxopts at the versions pinned in `CMakeLists.txt`, and builds them with the server:
 
 ```sh
-cmake -DBUILD_SERVER=ON ..
+cmake -S . -B build
+cmake --build build
 ```
 
 ### Run
@@ -30,7 +33,7 @@ mkfifo query reply
 You can then run the server with the default configuration as:
 
 ```sh
-./server/ioh-server query reply
+./build/ioh-server query reply
 ```
 
 To set up the problem actually served, use the following options:
@@ -52,7 +55,7 @@ need to indicate the type of problems ("integer" or "real"):
 ioh-server -t real --help-problems
 ```
 
-More options are available, see `ioh-server --help`.
+More options are available, see `ioh-server --help`; `--dbg-level` (e.g. `Debug`) shows what the server does.
 
 
 ## Messages
@@ -146,7 +149,7 @@ value = jreply["solution"]
 ```
 
 An example implementation of a solver client is given in Python in
-`example_client.py`.
+`example_client.py` (`python3 example_client.py query reply`).
 
 ### Fundamentals
 

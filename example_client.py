@@ -6,9 +6,9 @@ if __name__ == "__main__":
     import random
     import sys
 
+    # the named pipes of the server (e.g. ./build/ioh-server -t integer -d 10 query reply)
     dimension = 10
-    fquery = "../debug/query"
-    freply = "../debug/reply"
+    fquery, freply = sys.argv[1:3] if len(sys.argv) > 2 else ("query", "reply")
 
     for i in range(5):
 

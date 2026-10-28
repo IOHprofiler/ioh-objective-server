@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and serve (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      # IOHexperimenter's fmt submodule has an SSH URL
+      - name: Fetch submodules over https
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+      - name: Build
+        run: |
+          cmake -S . -B build
+          cmake --build build --parallel 4
+      - name: Serve OneMax and query it
+        run: |
+          mkfifo query reply
+          ./build/ioh-server --type integer --problem OneMax --instance 1 --dimension 10 query reply &
+          python3 - <<'PY'
+          import json
+          import iohservice
+          for k in range(4):
+              x = [1] * k + [0] * (10 - k)
+              assert iohservice.call(x, "query", "reply") == k, k
+          assert iohservice.query(json.dumps({"query_type": "new_run"}), "query", "reply")["reply_type"] == "ack"
+          iohservice.query(json.dumps({"query_type": "stop"}), "query", "reply")
+          PY
+          wait
+          ls ioh_experiment*

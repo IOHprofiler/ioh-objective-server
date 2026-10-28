@@ -3,6 +3,8 @@
 #include <sstream>
 #include <fstream>
 #include <algorithm>
+#include <cctype>
+#include <vector>
 #include <filesystem>
 
 #if __cplusplus == 202002L
@@ -33,22 +35,27 @@ enum class Error : unsigned char {
     Unknown = 255
 };
 
-//! Macro to hide the necessary verbose casting.
-#ifdef WITH_CLUTCHLOG
-    #define EXIT_ON_ERROR(IOH_server_err_code, IOH_server_msg) { \
-        if(static_cast<unsigned char>(Error::IOH_server_err_code) > 0) { \
-            CLUTCHLOG(critical, IOH_server_msg); \
+//! The levels of the debugging messages (--dbg-level), from the most important on.
+enum class Level : unsigned char { critical, error, warning, progress, note, info, debug, xdebug };
+const std::vector<std::string> level_names = {"critical", "error", "warning", "progress", "note", "info", "debug", "xdebug"};
+
+//! The least important level that is written.
+Level log_threshold = Level::warning;
+
+//! Write a debugging message on std::clog, if its level is written.
+#define SERVER_LOG(LEVEL, WHAT) { \
+        if(Level::LEVEL <= log_threshold) { \
+            std::clog << "[ioh-server] " #LEVEL ": " << WHAT << std::endl; \
         } \
-        exit(static_cast<unsigned char>(Error::IOH_server_err_code)); \
     }
-#else
-    #define EXIT_ON_ERROR(IOH_server_err_code, IOH_server_msg) { \
+
+//! Macro to hide the necessary verbose casting.
+#define EXIT_ON_ERROR(IOH_server_err_code, IOH_server_msg) { \
         if(static_cast<unsigned char>(Error::IOH_server_err_code) > 0) { \
             std::cerr << "ERROR: " << IOH_server_msg << std::endl; \
         } \
         exit(static_cast<unsigned char>(Error::IOH_server_err_code)); \
     }
-#endif
 
 #define EXIT(IOH_server_err_code) exit(static_cast<unsigned char>(Error::IOH_server_err_code))
 
@@ -79,20 +86,20 @@ std::vector<T> split(const std::string& str, char delim = ',') {
 //! Write a message in a file.
 void send(const std::string& filename, const std::string& msg)
 {
-    CLUTCHLOG(debug, "Send response...");
+    SERVER_LOG(debug, "Send response...");
     std::ofstream ofs( filename );
     if(ofs.fail()) {
         EXIT_ON_ERROR(Unreadable, "Output fifo named pipe cannot be read.");
     }
     ofs << msg << std::endl;
     ofs.close();
-    CLUTCHLOG(xdebug, "Sent: `" << msg << "`.");
+    SERVER_LOG(xdebug, "Sent: `" << msg << "`.");
 }
 
 //! Read a message in a file.
 std::string read(const std::string& filename)
 {
-    CLUTCHLOG(debug, "Wait for query... ");
+    SERVER_LOG(debug, "Wait for query... ");
     std::ifstream ifs( filename );
     if(ifs.fail()) {
         EXIT_ON_ERROR(Unreadable, "Input fifo named pipe cannot be written.");
@@ -101,7 +108,7 @@ std::string read(const std::string& filename)
     datas << ifs.rdbuf();
     ifs.close();
     std::string data = strip(datas.str());
-    CLUTCHLOG(xdebug, "Received: `" << data << "`");
+    SERVER_LOG(xdebug, "Received: `" << data << "`");
     return data;
 }
 
@@ -160,7 +167,7 @@ json forge_value(const double val, const std::vector<T> sol)
 //! Send back an error message to the client and log it.
 void error(const std::string& filename, const std::string& msg, const Error code = Error::Unknown)
 {
-    CLUTCHLOG(error, msg);
+    SERVER_LOG(error, msg);
     json jquery = forge_error(msg, code);
     send(filename, jquery.dump());
 }
@@ -196,9 +203,9 @@ void call(std::shared_ptr<T> problem, const cxxopts::ParseResult& asked, const j
     }
     // TODO check domain constraints.
 
-    CLUTCHLOG(debug, "Call the objective function...");
+    SERVER_LOG(debug, "Call the objective function...");
     double fval = (*problem)(sol);
-    CLUTCHLOG(xdebug, "Result: `" << fval << "`.");
+    SERVER_LOG(xdebug, "Result: `" << fval << "`.");
                 
     json jreply = forge_value<typename T::Type>(fval, sol);
     send(freply, jreply.dump());
@@ -230,11 +237,6 @@ int main(int argc, char** argv)
         ("m,metadata", "Additional information to store in the data files", cxxopts::value<std::string>()->default_value("") )
         /* Debug */
         ("dbg-level", "Debugging log level (Critical, Error, Warning, Progress, Note, Info, Debug or XDebug)", cxxopts::value<std::string>()->default_value("Warning") )
-#if CLUTCHLOG_HAVE_UNIX_SYSINFO == 1
-        ("dbg-depth", "Max call stack depth until which to enable logging", cxxopts::value<size_t>()->default_value("999") )
-#endif
-        ("dbg-file", "Regexp matching the source code file(s) in which to enable debugging log", cxxopts::value<std::string>()->default_value(".*") )
-        ("dbg-func", "Regexp matching the source code function(s) in which to enable debugging log", cxxopts::value<std::string>()->default_value(".*") )
         ("help-problems", "List the available problems", cxxopts::value<bool>() )
     ;
 
@@ -255,23 +257,13 @@ int main(int argc, char** argv)
      * Logging configuration
      **********************************************************************/
 
-    auto& log = clutchlog::logger();
-
-    log.out(std::clog);
-    log.threshold( log.level_of(asked["dbg-level"].as<std::string>()) );
-
-#if CLUTCHLOG_HAVE_UNIX_SYSINFO == 1
-    log.depth( asked["dbg-depth"].as<size_t>() );
-#endif 
-
-    log.file( asked["dbg-file"].as<std::string>() );
-    log.func( asked["dbg-func"].as<std::string>() );
-
-#ifndef NDEBUG
-    log.format("[{name}] {level}:{depth_marks} {msg}\t\t\t\t\t{func} @ {file}:{line}\n");
-#else
-    log.format("[{name}] {level_letter}({depth}): {msg}\n");
-#endif
+    std::string level = asked["dbg-level"].as<std::string>();
+    std::transform(level.begin(), level.end(), level.begin(), [](unsigned char c) { return std::tolower(c); });
+    const auto found = std::find(level_names.begin(), level_names.end(), level);
+    if(found == level_names.end()) {
+        EXIT_ON_ERROR(Invalid_Argument, "Unknown debugging level: `" << asked["dbg-level"].as<std::string>() << "`");
+    }
+    log_threshold = static_cast<Level>(found - level_names.begin());
 
     /***********************************************************************
      * IOH instantiations
@@ -284,13 +276,13 @@ int main(int argc, char** argv)
     }
 
     // FIXME check if IOH can have the necessary abstract interfaces here.
-    std::shared_ptr<ioh::problem::Integer> problem_int  = nullptr;
-    std::shared_ptr<ioh::problem::Real>    problem_real = nullptr;
+    std::shared_ptr<ioh::problem::IntegerSingleObjective> problem_int  = nullptr;
+    std::shared_ptr<ioh::problem::RealSingleObjective>    problem_real = nullptr;
 
     if(type == "integer") {
-        problem_int = create<ioh::problem::Integer>(asked);
+        problem_int = create<ioh::problem::IntegerSingleObjective>(asked);
     } else if(type == "real") {
-        problem_real = create<ioh::problem::Real>(asked);
+        problem_real = create<ioh::problem::RealSingleObjective>(asked);
     }
 
     // TODO parametrize W-model?
@@ -349,7 +341,7 @@ int main(int argc, char** argv)
      * Main loop
      **********************************************************************/
 
-    CLUTCHLOG(progress, "Start the server.");
+    SERVER_LOG(progress, "Start the server.");
 
     while(true) {
 
@@ -377,7 +369,7 @@ int main(int argc, char** argv)
          * stop
          *********************************************************************/
         if(query_type == "stop") {
-            CLUTCHLOG(progress, "Been asked to exit.");
+            SERVER_LOG(progress, "Been asked to exit.");
             json jreply = forge_ack();
             send(freply, jreply.dump());
             break;
@@ -386,7 +378,7 @@ int main(int argc, char** argv)
          * new_run
          *********************************************************************/
         } else if(query_type == "new_run") {
-            CLUTCHLOG(note, "Reset the logger for a new run.");
+            SERVER_LOG(note, "Reset the logger for a new run.");
             logger.reset();
             json jreply = forge_ack();
             send(freply, jreply.dump());
@@ -403,9 +395,9 @@ int main(int argc, char** argv)
             }
 
             if(type == "integer") {
-                call<ioh::problem::Integer>(problem_int, asked, jquery, freply);
+                call<ioh::problem::IntegerSingleObjective>(problem_int, asked, jquery, freply);
             } else if(type == "real") {
-                call<ioh::problem::Real>(problem_real, asked, jquery, freply);
+                call<ioh::problem::RealSingleObjective>(problem_real, asked, jquery, freply);
             }
 
         /**********************************************************************
@@ -419,6 +411,6 @@ int main(int argc, char** argv)
         }
     } // while true
 
-    CLUTCHLOG(progress, "Stop the server.");
+    SERVER_LOG(progress, "Stop the server.");
     EXIT(No_Error);
 }
