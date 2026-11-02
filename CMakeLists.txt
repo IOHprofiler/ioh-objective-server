@@ -12,11 +12,12 @@ endif()
 
 include(FetchContent)
 # IOHexperimenter, built with the server: the problems and the Analyzer logger. It needs only its fmt submodule, and
-# it finds its data files in its source tree.
+# it finds its data files in its source tree. A shallow clone of the release tag leaves out the repository's history.
 FetchContent_Declare(
     iohexperimenter
     GIT_REPOSITORY https://github.com/IOHprofiler/IOHexperimenter.git
-    GIT_TAG 8d6746c12af427394b023fc6531fa150371b110d
+    GIT_TAG v0.4.0
+    GIT_SHALLOW TRUE
     GIT_SUBMODULES external/fmt)
 # the JSON messages and the command line
 FetchContent_Declare(
