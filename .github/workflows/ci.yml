@@ -16,9 +16,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-      # IOHexperimenter's fmt submodule has an SSH URL
-      - name: Fetch submodules over https
-        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
       - name: Build
         run: |
           cmake -S . -B build
